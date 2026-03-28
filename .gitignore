@@ -1,0 +1,35 @@
+# Node dependencies
+node_modules/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+backend/test_hf.py
+backend/tests/
+
+# Environment variables
+.env
+.env.local
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+.gemini/
+
+# Databases
+*.db
+*.sqlite3
+chat_logs.db
+
+# Note: We are explicitly tracking backend/model_output/ to ensure the 
+# deep learning engine can boot up successfully for anyone who clones the repo!
