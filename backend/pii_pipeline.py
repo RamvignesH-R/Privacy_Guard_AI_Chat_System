@@ -142,7 +142,11 @@ class PrivacyGuard:
         self.regex_detector = RegexDetector()
         self.bilstm_detector = BiLSTMDetector()
         hf_token = os.environ.get("HF_API_TOKEN", "")
-        self.bert_detector = BERTDetector(hf_token)
+        if os.environ.get("DISABLE_BERT", "false").lower() == "true":
+            self.bert_detector = None
+            print("BERT loading disabled for low-memory deployment.")
+        else:
+            self.bert_detector = BERTDetector(hf_token)
         
     def reload_model(self):
         print("Reloading BiLSTM model from updated weights...")
