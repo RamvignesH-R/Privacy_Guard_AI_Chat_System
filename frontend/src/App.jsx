@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { Shield, Send } from 'lucide-react';
 import ChatContainer from './components/ChatContainer';
+import DocumentMasker from './components/DocumentMasker';
 import './App.css';
 
 function App() {
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('chat');
   const [retrainState, setRetrainState] = useState({ active: false, progress: 0, status: 'idle', msg: '' });
 
   const handleFlagMessage = async (text) => {
@@ -110,6 +112,21 @@ function App() {
             <h1 className="header-title">PII DATA MASKER</h1>
           </div>
         </div>
+        
+        <div className="tabs-container">
+          <button 
+            className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+            onClick={() => setActiveTab('chat')}
+          >
+            Chat Interface
+          </button>
+          <button 
+            className={`tab-btn ${activeTab === 'document' ? 'active' : ''}`}
+            onClick={() => setActiveTab('document')}
+          >
+            Document OCR
+          </button>
+        </div>
       </header>
 
       {retrainState.active && (
@@ -134,30 +151,37 @@ function App() {
         </div>
       )}
 
-      <ChatContainer messages={messages} onFlag={handleFlagMessage} isLoading={isLoading} />
+      {activeTab === 'chat' ? (
+        <>
 
-      <div className="input-container">
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          <div className="input-wrapper">
-            <input
-              type="text"
-              className="chat-input"
-              placeholder="Type a message"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              disabled={isLoading}
-            />
+          <ChatContainer messages={messages} onFlag={handleFlagMessage} isLoading={isLoading} />
+
+          <div className="input-container">
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div className="input-wrapper">
+                <input
+                  type="text"
+                  className="chat-input"
+                  placeholder="Type a message"
+                  value={inputValue}
+                  onChange={(e) => setInputValue(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                  disabled={isLoading}
+                />
+              </div>
+            </div>
+            <button
+              className="send-button"
+              onClick={handleSend}
+              disabled={isLoading || !inputValue.trim()}
+            >
+              {isLoading ? <div className="loader" /> : <Send size={15} />}
+            </button>
           </div>
-        </div>
-        <button
-          className="send-button"
-          onClick={handleSend}
-          disabled={isLoading || !inputValue.trim()}
-        >
-          {isLoading ? <div className="loader" /> : <Send size={15} />}
-        </button>
-      </div>
+        </>
+      ) : (
+        <DocumentMasker onFlag={handleFlagMessage} />
+      )}
     </div>
   );
 }

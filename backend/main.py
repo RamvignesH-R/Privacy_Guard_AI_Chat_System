@@ -10,6 +10,7 @@ from database import engine, Base, get_db
 from models import ChatLog
 from pii_pipeline import PrivacyGuard
 import train_bilstm
+import json
 
 load_dotenv()
 
@@ -55,7 +56,15 @@ def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     raw_gemini_response = ""
     try:
         model = genai.GenerativeModel("gemini-flash-latest")
-        response = model.generate_content(masked_input)
+        response = model.generate_content(
+            masked_input,
+            safety_settings=[
+                {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+                {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            ]
+        )
         raw_gemini_response = response.text
     except Exception as e:
         raw_gemini_response = f"Error calling Gemini API: {e}"
@@ -92,8 +101,24 @@ def report_bad_masking(request: ChatRequest):
     # Title-case the text to help BERT detect lowercase names (e.g., 'ramvignesh' -> 'Ramvignesh')
     title_text = text.title()
     bert_entities = privacy_guard.bert_detector.detect(title_text)
+    
+    if not bert_entities and api_key:
+        print("BERT failed to find entities, falling back to Gemini for ground-truth extraction...")
+        try:
+            model = genai.GenerativeModel("gemini-flash-latest")
+            prompt = f"Extract all people names from the following text. Return ONLY a comma-separated list of names. If none, return 'NONE'. Text: '{text}'"
+            response = model.generate_content(prompt)
+            names = [n.strip() for n in response.text.split(',') if n.strip() and n.strip() != 'NONE']
+            
+            for name in names:
+                start = text.find(name)
+                if start != -1:
+                    bert_entities.append((start, start + len(name), 'NAME', 1.0, 'GeminiFallback'))
+        except Exception as e:
+            print(f"Gemini fallback failed: {e}")
+            
     if not bert_entities:
-        return {"status": "error", "message": "BERT failed to detect robust entities or is still loading."}
+        return {"status": "error", "message": "BERT and Fallback failed to detect robust entities."}
         
     print(f"BERT detected entities: {bert_entities}")
     words = text.split()
@@ -122,6 +147,25 @@ def report_bad_masking(request: ChatRequest):
             active_label = None
             
     print(f"Constructed BiLSTM Tags array: {tags}")
+    
+    # Save to known_entities dictionary for immediate exact-match application
+    known_path = 'model_output/known_entities.json'
+    known = {}
+    if os.path.exists(known_path):
+        try:
+            with open(known_path, 'r') as f:
+                known = json.load(f)
+        except: pass
+        
+    for start, end, label, score, source in bert_entities:
+        entity_text = text[start:end]
+        if entity_text.strip():
+            known[entity_text.strip().lower()] = label
+            
+    os.makedirs('model_output', exist_ok=True)
+    with open(known_path, 'w') as f:
+        json.dump(known, f)
+
     try:
         train_bilstm.trigger_retraining(words, tags)
     except Exception as e:
@@ -129,3 +173,26 @@ def report_bad_masking(request: ChatRequest):
         
     privacy_guard.reload_model()
     return {"status": "success", "message": "Model retrained using BERT templates."}
+
+@app.post("/mask_document")
+def mask_document_endpoint(request: ChatRequest):
+    text = request.text
+    masked_text, logs = privacy_guard.process(text)
+    
+    entities_found = {}
+    for log in logs:
+        # Standardize labels
+        label = log['label']
+        if label == 'PER': label = 'NAME'
+        elif label == 'LOC': label = 'ADDRESS'
+        elif label == 'ORG': label = 'HOSPITAL'
+        
+        bracket_label = f"[{label}]"
+        entities_found[bracket_label] = entities_found.get(bracket_label, 0) + 1
+        
+    return {
+        "original": text,
+        "masked": masked_text,
+        "entities_found": entities_found,
+        "total_redactions": len(logs)
+    }

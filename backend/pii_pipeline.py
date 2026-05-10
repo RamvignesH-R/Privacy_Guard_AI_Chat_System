@@ -1,6 +1,7 @@
 import re
 import requests
 import os
+import json
 import torch
 from transformers import pipeline
 from bilstm_model import load_model
@@ -8,21 +9,50 @@ from bilstm_model import load_model
 class RegexDetector:
     def detect(self, text):
         entities = []
-        # Email
-        for match in re.finditer(r'[\w\.-]+@[\w\.-]+', text):
-            entities.append((match.start(), match.end(), 'EMAIL', 1.0, 'Regex'))
-        # Phone (simple format & 10 digit format)
-        for match in re.finditer(r'\b(\d{3}[-.]?\d{3}[-.]?\d{4}|\d{10})\b', text):
-            entities.append((match.start(), match.end(), 'PHONE', 1.0, 'Regex'))
-        # Extracted Age context (e.g. age is 31)
-        for match in re.finditer(r'\b(age is |I am )(\d{1,3})\b', text, flags=re.IGNORECASE):
-            digits = match.group(2)
-            start = match.start(2)
-            end = match.end(2)
+        
+        rules = [
+            ('EMAIL', r'[\w\.-]+@[\w\.-]+'),
+            ('PHONE', r'\b(\+?\d{1,3}[\s\-\.]?)?(\(?\d{2,4}\)?[\s\-\.]?)?\d{3,5}[\s\-\.]?\d{3,5}\b'),
+            ('ID NUMBER', r'(?i)\b[STFGM]\d{7}[A-Z]\b'), # Singapore NRIC
+            ('ID NUMBER', r'(?i)\b[A-Z0-9]{5,10}\b(?=\s*(?:mcr|nric|fin|passport))'), # Contextual MCR
+            ('MRN', r'(?i)\bMRN[\-\s]?\d{4,10}\b'),
+            ('AADHAAR', r'\b\d{4}[\s\-]\d{4}[\s\-]\d{4}\b'),
+            ('DATE', r'\b(?:\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}|\d{4}[\/\-\.]\d{2}[\/\-\.]\d{2})\b'),
+            ('NAME', r'\b(?:Mr|Mrs|Ms|Miss|Dr|Mdm|Prof)\.?\s+[A-Z][a-zA-Z\'\-]+(?:\s+[A-Z][a-zA-Z\'\-]+){0,3}\b'),
+        ]
+        
+        for label, pattern in rules:
+            for match in re.finditer(pattern, text):
+                entities.append((match.start(), match.end(), label, 1.0, 'Regex'))
+                
+        # Contextual Rules (Label: Value)
+        contextual_rules = [
+            ('ID NUMBER', r'(?i)(?:mcr|nric|fin|passport)(?:[\s/]*no\.?|[\s/]*number)?(?:[\s/]*of\s*(?:patient|doctor))?\s*[:\.]\s*([A-Za-z0-9]{5,15})\b'),
+        ]
+        for label, pattern in contextual_rules:
+            for match in re.finditer(pattern, text):
+                start, end = match.start(1), match.end(1)
+                entities.append((start, end, label, 1.0, 'Regex'))
+                
+        # Contextual Age rule
+        for match in re.finditer(r'\b(?:age is |I am |aged? )(\d{1,3})\b', text, flags=re.IGNORECASE):
+            start = match.start(1)
+            end = match.end(1)
             entities.append((start, end, 'AGE', 1.0, 'Regex'))
-        # Specific alphanumeric IDs
-        for match in re.finditer(r'\b\d{2}[a-zA-Z]{2}\d{2}\b', text):
-            entities.append((match.start(), match.end(), 'ID', 1.0, 'Regex'))
+            
+        # Active Learning Memory rule
+        try:
+            with open('model_output/known_entities.json', 'r') as f:
+                known = json.load(f)
+            for name, label in known.items():
+                if len(name) < 2: continue
+                # Match whole words (case insensitive)
+                pattern = r'\b' + re.escape(name) + r'\b'
+                for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+                    entities.append((match.start(), match.end(), label, 1.0, 'Memory'))
+        except Exception as e:
+            pass
+            
         return entities
 
 class BiLSTMDetector:
@@ -40,7 +70,15 @@ class BiLSTMDetector:
         words = text.split()
         if not words: return []
         
-        idxs = [self.word_to_ix.get(w.lower(), self.word_to_ix["<UNK>"]) for w in words]
+        # Strip trailing/leading punctuation for dictionary lookup
+        clean_words = []
+        for w in words:
+            cw = w.strip(".,;:!'\"?")
+            if cw.lower().endswith("'s") or cw.lower().endswith("’s"):
+                cw = cw[:-2]
+            clean_words.append(cw)
+        
+        idxs = [self.word_to_ix.get(cw.lower(), self.word_to_ix["<UNK>"]) for cw in clean_words]
         sentence_in = torch.tensor(idxs, dtype=torch.long).unsqueeze(0)
         
         with torch.no_grad():
@@ -56,7 +94,8 @@ class BiLSTMDetector:
             end = start + len(word)
             char_idx = end
 
-            if word.lower() not in self.word_to_ix:
+            clean_word = clean_words[i]
+            if clean_word.lower() not in self.word_to_ix:
                 # OOV word. Our dummy BiLSTM model will heavily hallucinate phones for OOV, so we skip.
                 continue
             
@@ -117,7 +156,7 @@ class PrivacyGuard:
         # if os.environ.get("HF_API_TOKEN"):
         #     all_entities.extend(self.bert_detector.detect(text))
             
-        priority = {'BERT': 3, 'BiLSTM': 2, 'Regex': 1}
+        priority = {'Memory': 4, 'BERT': 3, 'BiLSTM': 2, 'Regex': 1}
         all_entities.sort(key=lambda x: (x[0], -priority[x[4]]))
         
         merged_entities = []
