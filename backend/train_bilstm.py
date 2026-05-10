@@ -9,7 +9,7 @@ from bilstm_model import BiLSTM_PII_Tagger
 DATASET_PATH = 'model_output/bilstm_dataset.json'
 
 def prepare_sequence(seq, to_ix):
-    idxs = [to_ix.get(w, to_ix["<UNK>"]) for w in seq]
+    idxs = [to_ix.get(w.lower(), to_ix["<UNK>"]) for w in seq]
     return torch.tensor(idxs, dtype=torch.long)
 
 def init_default_dataset():
@@ -57,8 +57,9 @@ def train_model(epochs=150):
     word_to_ix = {"<PAD>": 0, "<UNK>": 1}
     for sentence, tags in training_data:
         for word in sentence:
-            if word not in word_to_ix:
-                word_to_ix[word] = len(word_to_ix)
+            w_lower = word.lower()
+            if w_lower not in word_to_ix:
+                word_to_ix[w_lower] = len(word_to_ix)
 
     tag_to_ix = {"O": 0, "B-NAME": 1, "I-NAME": 2, "B-PHONE": 3, "B-EMAIL": 4, "B-ADDRESS": 5, "I-ADDRESS": 6, "B-AGE": 7, "B-ID": 8}
 

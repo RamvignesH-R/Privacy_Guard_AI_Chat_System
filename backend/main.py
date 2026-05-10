@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import google.generativeai as genai
@@ -26,17 +26,20 @@ app.add_middleware(
 )
 
 api_key = os.environ.get("GEMINI_API_KEY", "")
-if api_key:
+if not api_key:
+    print("WARNING: GEMINI_API_KEY not set in .env file!")
+else:
     genai.configure(api_key=api_key)
-    
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-pro")
-print("✅ Gemini initialized")
+    print("Gemini initialized with API key.")
 
 privacy_guard = PrivacyGuard()
 
 class ChatRequest(BaseModel):
     text: str
+
+@app.get("/")
+def read_root():
+    return {"message": "Privacy Guard AI Chat API is running smoothly."}
 
 @app.post("/chat")
 def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
@@ -46,29 +49,17 @@ def chat_endpoint(request: ChatRequest, db: Session = Depends(get_db)):
     masked_input, input_logs = privacy_guard.process(original_input)
     
     # 2. Call Gemini
-    raw_gemini_response = "Waiting for model configuration."
-    if api_key:
-        try:
-            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-            print("Valid Models for this Key:", available_models)
-            
-            chosen_model = "models/gemini-1.5-flash"
-            if available_models:
-                for m in available_models:
-                    if 'gemini-1.5-flash' in m:
-                        chosen_model = m
-                        break
-                    elif 'gemini-1.0-pro' in m:
-                        chosen_model = m
-                        break
-                if chosen_model not in available_models:
-                    chosen_model = available_models[0]
-                    
-            model = genai.GenerativeModel(chosen_model) 
-            response = model.generate_content(masked_input)
-            raw_gemini_response = response.text
-        except Exception as e:
-            raw_gemini_response = f"Error calling Gemini API: {e}"
+    if not api_key:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured. Please add it to backend/.env")
+    
+    raw_gemini_response = ""
+    try:
+        model = genai.GenerativeModel("gemini-flash-latest")
+        response = model.generate_content(masked_input)
+        raw_gemini_response = response.text
+    except Exception as e:
+        raw_gemini_response = f"Error calling Gemini API: {e}"
+
         
     # 3. Mask Gemini response
     masked_response, output_logs = privacy_guard.process(raw_gemini_response)
@@ -98,7 +89,9 @@ def report_bad_masking(request: ChatRequest):
     text = request.text
     print(f"User flagged bad masking. Processing with BERT: {text}")
     
-    bert_entities = privacy_guard.bert_detector.detect(text)
+    # Title-case the text to help BERT detect lowercase names (e.g., 'ramvignesh' -> 'Ramvignesh')
+    title_text = text.title()
+    bert_entities = privacy_guard.bert_detector.detect(title_text)
     if not bert_entities:
         return {"status": "error", "message": "BERT failed to detect robust entities or is still loading."}
         

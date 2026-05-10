@@ -2,6 +2,7 @@ import re
 import requests
 import os
 import torch
+from transformers import pipeline
 from bilstm_model import load_model
 
 class RegexDetector:
@@ -39,7 +40,7 @@ class BiLSTMDetector:
         words = text.split()
         if not words: return []
         
-        idxs = [self.word_to_ix.get(w, self.word_to_ix["<UNK>"]) for w in words]
+        idxs = [self.word_to_ix.get(w.lower(), self.word_to_ix["<UNK>"]) for w in words]
         sentence_in = torch.tensor(idxs, dtype=torch.long).unsqueeze(0)
         
         with torch.no_grad():
@@ -55,7 +56,7 @@ class BiLSTMDetector:
             end = start + len(word)
             char_idx = end
 
-            if word not in self.word_to_ix:
+            if word.lower() not in self.word_to_ix:
                 # OOV word. Our dummy BiLSTM model will heavily hallucinate phones for OOV, so we skip.
                 continue
             
@@ -67,35 +68,34 @@ class BiLSTMDetector:
         return entities
 
 class BERTDetector:
-    def __init__(self, token):
-        self.api_url = "https://router.huggingface.co/hf-inference/models/dslim/bert-base-NER"
-        self.headers = {"Authorization": f"Bearer {token}"} if token else {}
+    def __init__(self, token=None):
+        print("Loading local BERT model...")
+        try:
+            self.pipeline = pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple")
+            self.is_loaded = True
+        except Exception as e:
+            print(f"Failed to load local BERT model: {e}")
+            self.is_loaded = False
         
     def detect(self, text):
-        if not self.api_url or not self.headers.get("Authorization") or self.headers["Authorization"] == "Bearer ":
+        if not self.is_loaded:
             return []
             
         try:
-            response = requests.post(self.api_url, headers=self.headers, json={"inputs": text})
-            if response.status_code == 200:
-                results = response.json()
-                if not isinstance(results, list): return []
-                entities = []
-                for res in results:
-                    label = res.get('entity_group', res.get('entity', 'UNK'))
-                    if label.startswith('B-') or label.startswith('I-'):
-                        label = label[2:]
-                    if label == 'PER': label = 'NAME'
-                    elif label == 'LOC': label = 'ADDRESS'
-                    elif label == 'ORG': label = 'ORG'
-                    
-                    entities.append((res['start'], res['end'], label, res['score'], 'BERT'))
-                return entities
-            else:
-                print(f"BERT API Error: {response.text}")
-                return []
+            results = self.pipeline(text)
+            entities = []
+            for res in results:
+                label = res['entity_group']
+                if label == 'PER': label = 'NAME'
+                elif label == 'LOC': label = 'ADDRESS'
+                elif label == 'ORG': label = 'ORG'
+                
+                # Convert numpy float32 to python float for json serialization
+                score = float(res['score'])
+                entities.append((res['start'], res['end'], label, score, 'BERT'))
+            return entities
         except Exception as e:
-            print(f"BERT Fetch Exception: {e}")
+            print(f"BERT Local Inference Error: {e}")
             return []
 
 class PrivacyGuard:
