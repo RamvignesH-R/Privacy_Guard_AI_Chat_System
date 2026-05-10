@@ -22,7 +22,8 @@ function App() {
     }, 150);
 
     try {
-      const response = await fetch('http://localhost:8000/report_bad_masking', {
+      const apiUrl = import.meta.env.VITE_CHAT_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/report_bad_masking`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
@@ -61,7 +62,8 @@ function App() {
     setMessages(prev => [...prev, tempUserMsg]);
 
     try {
-      const response = await fetch('http://localhost:8000/chat', {
+      const apiUrl = import.meta.env.VITE_CHAT_API_URL || 'http://localhost:8000';
+      const response = await fetch(`${apiUrl}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: userMessageText })

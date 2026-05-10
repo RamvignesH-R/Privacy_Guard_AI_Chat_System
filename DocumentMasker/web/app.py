@@ -638,7 +638,8 @@ def mask():
         
         # Forward the text to our unified Privacy Guard API for masking!
         import requests
-        response = requests.post("http://localhost:8000/mask_document", json={"text": text})
+        chat_api_url = os.environ.get("CHAT_API_URL", "http://localhost:8000")
+        response = requests.post(f"{chat_api_url}/mask_document", json={"text": text})
         
         if response.status_code == 200:
             result = response.json()

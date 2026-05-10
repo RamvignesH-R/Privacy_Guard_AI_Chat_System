@@ -36,7 +36,8 @@ const DocumentMasker = ({ onFlag }) => {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:5000/mask', {
+      const apiUrl = import.meta.env.VITE_OCR_API_URL || 'http://localhost:5000';
+      const response = await fetch(`${apiUrl}/mask`, {
         method: 'POST',
         body: formData,
       });
