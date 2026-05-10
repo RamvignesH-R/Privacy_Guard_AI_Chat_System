@@ -10,7 +10,7 @@ RUN apt-get install -y poppler-utils
 
 RUN rm -rf /var/lib/apt/lists/*
 
-COPY web/requirements.txt requirements.txt
+COPY requirements.txt requirements.txt
 
 RUN pip install --no-cache-dir -r requirements.txt
 
