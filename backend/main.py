@@ -101,7 +101,11 @@ def report_bad_masking(request: ChatRequest):
     # Title-case the text to help BERT detect lowercase names (e.g., 'ramvignesh' -> 'Ramvignesh')
     title_text = text.title()
     bert_entities = privacy_guard.bert_detector.detect(title_text)
-    
+    if privacy_guard.bert_detector is None:
+        return {
+            "status": "disabled",
+            "message": "BERT retraining disabled in cloud deployment due to memory limits."
+        }
     if not bert_entities and api_key:
         print("BERT failed to find entities, falling back to Gemini for ground-truth extraction...")
         try:
