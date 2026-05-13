@@ -6,6 +6,8 @@ An AI-powered privacy protection platform that masks Personally Identifiable Inf
 
 Frontend Application: [https://privacy-guard-ai-chat-system-2tmzwgyo5-ramvignesh-rs-projects.vercel.app/](https://privacy-guard-ai-chat-system-2tmzwgyo5-ramvignesh-rs-projects.vercel.app/)
 
+* BERT model is disabled due to free tier cloud deployment hence feedback loop is not functional in this deployment.
+
 ## Features
 
 ### AI Chat Privacy Protection
